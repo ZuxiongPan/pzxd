@@ -1,6 +1,13 @@
-TARGET := prodb
-SRCS := $(wildcard *.c)
+TARGET := pzxd
+SRCS := $(wildcard *.c modules/*.c core/*.c)
 OBJS := $(patsubst %.c, %.o, $(SRCS))
+
+CFLAGS += -I$(COMM_LIB)/cJSON
+LDFLAGS += -L$(COMM_LIB)/cJSON -lcjson -lpthread -Wl,-rpath,'$$ORIGIN/../lib/cJSON'
+
+export OBJS
+
+.PHONY: all clean
 
 all: $(TARGET)
 
@@ -8,7 +15,7 @@ $(TARGET): $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c
-	$(CC) -c $< -o $@ $(CFLAGS)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	$(RM) $(OBJS) $(TARGET)

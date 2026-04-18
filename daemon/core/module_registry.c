@@ -1,0 +1,89 @@
+#include "core/module_registry.h"
+#include "log.h"
+
+#include <string.h>
+
+static struct module *module_registry[MODULE_ID_MAX];
+
+int module_registry_init(void) {
+    memset(module_registry, 0, sizeof(module_registry));
+    return SUCCESS;
+}
+
+int module_register(struct module *mod) {
+    if(NULL == mod || mod->id >= MODULE_ID_MAX) {
+        log_error("Invalid module\n");
+        return INVALID_ARGUMENT;
+    }
+
+    if(NULL != module_registry[mod->id]) {
+        log_error("Module with id %d already registered\n", mod->id);
+        return INVALID_ARGUMENT;
+    }
+
+    module_registry[mod->id] = mod;
+    return SUCCESS;
+}
+
+int module_registry_start_all(void) {
+    for(int i = 0; i < MODULE_ID_MAX; ++i) {
+        if(NULL == module_registry[i]) {
+            continue;
+        }
+
+        int ret = module_start(module_registry[i]);
+        if(SUCCESS != ret) {
+            log_error("Failed to start module [%s] with error code %d\n",
+                      module_registry[i]->name, ret);
+            return ret;
+        }
+    }
+
+    return SUCCESS;
+}
+
+int module_registry_stop_all(const char *reason) {
+    for(int i = MODULE_ID_MAX - 1; i >= 0; --i) {
+        if(NULL == module_registry[i] || !module_registry[i]->running) {
+            continue;
+        }
+
+        int ret = module_stop(module_registry[i], reason);
+        if(SUCCESS != ret) {
+            log_error("Failed to stop module [%s] with error code %d\n",
+                      module_registry[i]->name, ret);
+            return ret;
+        }
+    }
+
+    return SUCCESS;
+}
+
+struct module *find_module_by_id(enum module_id id) {
+    if(id >= MODULE_ID_MAX) {
+        log_error("Invalid module id %d\n", id);
+        return NULL;
+    }
+    return module_registry[id];
+}
+
+struct module *find_module_by_name(const char *name) {
+    if(NULL == name) {
+        log_error("Invalid module name\n");
+        return NULL;
+    }
+    for(int i = 0; i < MODULE_ID_MAX; ++i) {
+        if(NULL != module_registry[i] && !strncmp(module_registry[i]->name, name, MODULE_NAME_MAX_LEN)) {
+            return module_registry[i];
+        }
+    }
+    return NULL;
+}
+
+void print_module_registry(void) {
+    for(int i = 0; i < MODULE_ID_MAX; ++i) {
+        if(NULL != module_registry[i]) {
+            printf("\tModule %d: %s\n", i, module_registry[i]->name);
+        }
+    }
+}
