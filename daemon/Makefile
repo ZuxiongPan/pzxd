@@ -1,15 +1,22 @@
+CC := gcc
+CFLAGS := -Wall -Wextra -O2
+LDFLAGS := 
+
 TARGET := pzxd
-SRCS := $(wildcard *.c modules/*.c core/*.c)
+SRCS := $(wildcard core/*.c init/*.c modules/*.c)
 OBJS := $(patsubst %.c, %.o, $(SRCS))
 
-CFLAGS += -I$(COMM_LIB)/cJSON
-LDFLAGS += -L$(COMM_LIB)/cJSON -lcjson -lpthread -Wl,-rpath,'$$ORIGIN/../lib/cJSON'
+CFLAGS += -I./include
+LDFLAGS += -lpthread
 
 export OBJS
 
-.PHONY: all clean
+.PHONY: all lib clean start
 
-all: $(TARGET)
+all: lib $(TARGET)
+
+lib:
+	@echo "do nothing"
 
 $(TARGET): $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
@@ -19,3 +26,6 @@ $(TARGET): $(OBJS)
 
 clean:
 	$(RM) $(OBJS) $(TARGET)
+
+start:
+	./$(TARGET)

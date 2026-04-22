@@ -1,24 +1,24 @@
 #include "core/module_registry.h"
-#include "log.h"
+#include "common/log.h"
 
 #include <string.h>
 
 static struct module *module_registry[MODULE_ID_MAX];
 
-int module_registry_init(void) {
+void module_registry_init(void) {
     memset(module_registry, 0, sizeof(module_registry));
-    return SUCCESS;
+    return ;
 }
 
 int module_register(struct module *mod) {
     if(NULL == mod || mod->id >= MODULE_ID_MAX) {
         log_error("Invalid module\n");
-        return INVALID_ARGUMENT;
+        return -EINVAL;
     }
 
     if(NULL != module_registry[mod->id]) {
         log_error("Module with id %d already registered\n", mod->id);
-        return INVALID_ARGUMENT;
+        return -EEXIST;
     }
 
     module_registry[mod->id] = mod;
@@ -35,7 +35,7 @@ int module_registry_start_all(void) {
         if(SUCCESS != ret) {
             log_error("Failed to start module [%s] with error code %d\n",
                       module_registry[i]->name, ret);
-            return ret;
+            return -EBUSY;
         }
     }
 
@@ -52,7 +52,7 @@ int module_registry_stop_all(const char *reason) {
         if(SUCCESS != ret) {
             log_error("Failed to stop module [%s] with error code %d\n",
                       module_registry[i]->name, ret);
-            return ret;
+            // a module stop failed do not influence other modules
         }
     }
 
@@ -60,7 +60,7 @@ int module_registry_stop_all(const char *reason) {
 }
 
 struct module *find_module_by_id(enum module_id id) {
-    if(id >= MODULE_ID_MAX) {
+    if(id <= MODULE_ID_NONE || id >= MODULE_ID_MAX) {
         log_error("Invalid module id %d\n", id);
         return NULL;
     }
@@ -68,16 +68,19 @@ struct module *find_module_by_id(enum module_id id) {
 }
 
 struct module *find_module_by_name(const char *name) {
+    struct module *entry = NULL;
+
     if(NULL == name) {
         log_error("Invalid module name\n");
         return NULL;
     }
     for(int i = 0; i < MODULE_ID_MAX; ++i) {
         if(NULL != module_registry[i] && !strncmp(module_registry[i]->name, name, MODULE_NAME_MAX_LEN)) {
-            return module_registry[i];
+            entry = module_registry[i];
+            break;
         }
     }
-    return NULL;
+    return entry;
 }
 
 void print_module_registry(void) {

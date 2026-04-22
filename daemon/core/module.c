@@ -1,5 +1,5 @@
 #include "core/module.h"
-#include "log.h"
+#include "common/log.h"
 
 #include <unistd.h>
 
@@ -7,12 +7,12 @@ static void *module_thread_func(void *arg) {
     struct module *mod = (struct module *)arg;
     if(NULL == mod) {
         log_error("Module is Invalid\n");
-        return ERRNO_TO_PTR(INVALID_ARGUMENT);
+        return NULL;
     }
 
     if(NULL == mod->actions) {
         log_info("Module [%s] has no actions defined, exiting thread\n", mod->name);
-        return ERRNO_TO_PTR(OPERATION_FORBIDDEN);
+        return NULL;
     }
 
     int inner_ret = SUCCESS;
@@ -21,7 +21,7 @@ static void *module_thread_func(void *arg) {
         inner_ret = mod->actions->on_init(mod);
         if(SUCCESS != inner_ret) {
             log_error("Module [%s] on_init failed with error code %d\n", mod->name, inner_ret);
-            return ERRNO_TO_PTR(inner_ret);
+            return NULL;
         }
     }
 
@@ -44,13 +44,13 @@ static void *module_thread_func(void *arg) {
         inner_ret = mod->actions->on_exit(mod);
     }
 
-    return ERRNO_TO_PTR(SUCCESS);
+    return NULL;
 }
 
 int module_init(struct module *mod, enum module_id id, const char *name) {
     if (NULL == mod || NULL == name) {
         log_error("Invalid arguments\n");
-        return INVALID_ARGUMENT;
+        return -EINVAL;
     }
 
     mod->id = id;
@@ -65,7 +65,7 @@ int module_init(struct module *mod, enum module_id id, const char *name) {
 int module_start(struct module *mod) {
     if (NULL == mod) {
         log_error("Module is Invalid\n");
-        return INVALID_ARGUMENT;
+        return -EINVAL;
     }
 
     mod->running = true;
@@ -74,7 +74,7 @@ int module_start(struct module *mod) {
     if(0 != pthread_create(&mod->thread_id, NULL, module_thread_func, mod)) {
         log_error("Failed to create thread for module [%s]\n", mod->name);
         mod->running = false;
-        return CFUNC_CALLFAIL;
+        return -EBUSY;
     }
 
     return SUCCESS;
@@ -83,15 +83,15 @@ int module_start(struct module *mod) {
 int module_stop(struct module *mod, const char *reason) {
     if (NULL == mod) {
         log_error("Module is Invalid\n");
-        return INVALID_ARGUMENT;
+        return -EINVAL;
     }
 
     mod->running = false;
     log_info("Module [%s] stopping due to reason: %s\n", mod->name, reason ? reason : "No reason provided");
 
-    if(0 != pthread_join(mod->thread_id, NULL)) {
+    if(pthread_join(mod->thread_id, NULL)) {
         log_error("Failed to join thread for module [%s]\n", mod->name);
-        return CFUNC_CALLFAIL;
+        return -EBUSY;
     }
 
     log_info("Module [%s] stopped successfully\n", mod->name);
@@ -101,10 +101,42 @@ int module_stop(struct module *mod, const char *reason) {
 int module_pass_message(struct module *mod, void *msg) {
     if (NULL == mod) {
         log_error("Module is Invalid\n");
-        return INVALID_ARGUMENT;
+        return -EINVAL;
     }
 
     log_debug("Module [%s] received a message\n", mod->name);
+
+    return SUCCESS;
+}
+
+int default_module_on_init(struct module *mod) {
+    if(NULL != mod) {
+        log_info("Module [%s], ID %d, default init\n", mod->name, mod->id);
+    }
+
+    return SUCCESS;
+}
+
+int default_module_on_message(struct module *mod) {
+    if(NULL != mod) {
+        log_info("Module [%s], ID %d, default on_message\n", mod->name, mod->id);
+    }
+
+    return SUCCESS;
+}
+
+int default_module_on_tick(struct module *mod) {    
+    if(NULL != mod) {
+        log_info("Module [%s], ID %d, default on_tick\n", mod->name, mod->id);
+    }
+
+    return SUCCESS;
+}
+
+int default_module_on_exit(struct module *mod) {
+    if(NULL != mod) {
+        log_info("Module [%s], ID %d, default on_exit\n", mod->name, mod->id);
+    }
 
     return SUCCESS;
 }
