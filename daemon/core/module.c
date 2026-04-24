@@ -1,5 +1,6 @@
 #include "core/module.h"
 #include "common/log.h"
+#include "core/msg_bus.h"
 
 #include <unistd.h>
 
@@ -26,17 +27,14 @@ static void *module_thread_func(void *arg) {
     }
 
     while(mod->running) {
-        if(NULL != mod->actions->on_message) {
-            inner_ret = mod->actions->on_message(mod);
+        struct process_message msg;
+        int ret = receive_message(mod->id, &msg, 5000);
+        if(SUCCESS == ret && NULL != mod->actions->on_message) {
+            inner_ret = mod->actions->on_message(mod, &msg);
             log_debug("Module [%s] on_message returned with code %d\n", mod->name, inner_ret);
         }
-
-        if(NULL != mod->actions->on_tick) {
+        else if(ETIMEDOUT == ret && NULL != mod->actions->on_tick) {
             inner_ret = mod->actions->on_tick(mod);
-        }
-
-        for (int i = 0; i < 30 && mod->running; ++i) {
-            sleep(1);
         }
     }
 
@@ -95,17 +93,6 @@ int module_stop(struct module *mod, const char *reason) {
     }
 
     log_info("Module [%s] stopped successfully\n", mod->name);
-    return SUCCESS;
-}
-
-int module_pass_message(struct module *mod, void *msg) {
-    if (NULL == mod) {
-        log_error("Module is Invalid\n");
-        return -EINVAL;
-    }
-
-    log_debug("Module [%s] received a message\n", mod->name);
-
     return SUCCESS;
 }
 

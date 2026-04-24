@@ -33,5 +33,8 @@ static inline void set_message(struct process_message *msg_ptr, enum module_id s
 
 int msg_bus_init(void);
 void msg_bus_destroy(void);
+int send_message(const struct process_message *msg_in);
+int receive_message(enum module_id self, struct process_message *msg_out, int timeout_ms);
+
 
 #endif

@@ -1,12 +1,20 @@
 #include "core/module.h"
 #include "core/module_registry.h"
+#include "core/msg_bus.h"
 #include "common/log.h"
 
 static struct module memory_module = { 0 };
 
+static int memory_module_on_message(struct module *mod, const struct process_message *msg) {
+
+    log_info("Memory Module received message: %s\n", MSG_PAYLOAD(msg, char));
+
+    return SUCCESS;
+}
+
 static const struct module_actions memory_module_actions = {
     .on_init = default_module_on_init,
-    .on_message = default_module_on_message,
+    .on_message = memory_module_on_message,
     .on_tick = default_module_on_tick,
     .on_exit = default_module_on_exit
 };

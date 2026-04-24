@@ -21,7 +21,7 @@ int main() {
     signal(SIGINT, signal_handler);
 
     ret = msg_bus_init();
-    if (0 != ret) {
+    if (SUCCESS != ret) {
         return ret;
     }
 
@@ -29,19 +29,32 @@ int main() {
 
     for (size_t i = 0; i < module_register_table_size; ++i) {
         ret = module_register_table[i]();
-        if (0 != ret) {
+        if (SUCCESS != ret) {
             return ret;
         }
     }
 
     ret = module_registry_start_all();
-    if (0 != ret) {
+    if (SUCCESS != ret) {
         return ret;
     }
 
     while(!g_should_exit) {
-        pause();
+        time_t now = time(NULL);
+        char buffer[128];
+        struct process_message msg;
+        for(int i = 0; i < 30; ++i) {
+            now = time(NULL);
+            snprintf(buffer, sizeof(buffer), "tick %d %s", i, ctime(&now));
+            set_message(&msg, MODULE_ID_NONE, MODULE_ID_MEMORY, MSG_TYPE_NONE, \
+                sizeof(buffer), buffer);
+            send_message(&msg);
+            sleep(5);
+        }
     }
+
+    module_registry_stop_all("signal");
+    msg_bus_destroy();
 
     return SUCCESS;
 }

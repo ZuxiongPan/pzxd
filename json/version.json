@@ -1,6 +1,8 @@
 {
     "app": {
         "name": "pzxd",
+        "type": "daemon",
+        "platform": "linux",
         "version": "1.0.0",
         "language": "C",
         "description": "simple linux C daemon program",
