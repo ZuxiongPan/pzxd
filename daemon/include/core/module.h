@@ -2,7 +2,7 @@
 #define __MODULE_H__
 
 #include "modules/module_ids.h"
-#include "core/msg_bus.h"
+#include "core/msg_queue.h"
 #include <pthread.h>
 #include <stdbool.h>
 
@@ -10,30 +10,22 @@
 
 struct module;
 
-struct module_actions {
-    int (*on_init)(struct module *mod);
-    int (*on_message)(struct module *mod, const struct process_message *msg);
-    int (*on_tick)(struct module *mod);
-    int (*on_exit)(struct module *mod);
+struct msg_handler {
+    enum msg_type type;
+    int (*handler)(struct module *mod, const struct message *msg);
 };
 
 struct module {
+    bool running;
     enum module_id id;
     char name[MODULE_NAME_MAX_LEN];
-
-    bool running;
     pthread_t thread_id;
 
-    const struct module_actions *actions;
+    const struct msg_handler *msg_handlers;
 };
 
 int module_init(struct module *mod, enum module_id id, const char *name);
 int module_start(struct module *mod);
 int module_stop(struct module *mod, const char *reason);
-
-int default_module_on_init(struct module *mod);
-int default_module_on_exit(struct module *mod);
-int default_module_on_message(struct module *mod);
-int default_module_on_tick(struct module *mod);
 
 #endif

@@ -1,7 +1,7 @@
 #include "core/module_registry.h"
 #include "modules/module_initcalls.h"
 #include "common/log.h"
-#include "core/msg_bus.h"
+#include "core/msg_queue.h"
 
 #include <signal.h>
 #include <unistd.h>
@@ -20,7 +20,7 @@ int main() {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
-    ret = msg_bus_init();
+    ret = msg_queue_init();
     if (SUCCESS != ret) {
         return ret;
     }
@@ -40,29 +40,17 @@ int main() {
     }
 
     while(!g_should_exit) {
-        time_t now = time(NULL);
-        char buffer[128];
-        struct process_message msg;
-        for(int i = 0; i < 30; ++i) {
-            now = time(NULL);
-            snprintf(buffer, sizeof(buffer), "tick %d %s", i, ctime(&now));
-            set_message(&msg, MODULE_ID_NONE, MODULE_ID_MEMORY, MSG_TYPE_NONE, \
-                sizeof(buffer), buffer);
-            send_message(&msg);
-            sleep(5);
-        }
+
     }
 
+    msg_queue_destroy();
     module_registry_stop_all("signal");
-    msg_bus_destroy();
 
     return SUCCESS;
 }
 
 void signal_handler(int sig) {
     g_should_exit = 1;
-    module_registry_stop_all("signal");
-    msg_bus_destroy();
     log_info("receive signal %d, exit this daemon\n", sig);
 
     return ;

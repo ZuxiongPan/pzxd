@@ -1,45 +1,45 @@
 #include "core/module.h"
 #include "common/log.h"
-#include "core/msg_bus.h"
+#include "core/msg_queue.h"
 
 #include <unistd.h>
 
+static inline int match_handler(const struct module *mod, const struct message *msg) {
+    int ret = -ENOENT;
+    int i = 0;
+    while(NULL != mod->msg_handlers[i].handler) {
+        if(mod->msg_handlers[i].type == msg->type) {    
+            ret = i;
+            break;
+        }
+        i++;
+    }
+    return ret;
+}
+
 static void *module_thread_func(void *arg) {
     struct module *mod = (struct module *)arg;
-    if(NULL == mod) {
+    if(NULL == mod || NULL == mod->msg_handlers) {
         log_error("Module is Invalid\n");
         return NULL;
     }
 
-    if(NULL == mod->actions) {
-        log_info("Module [%s] has no actions defined, exiting thread\n", mod->name);
-        return NULL;
-    }
-
     int inner_ret = SUCCESS;
-
-    if(NULL != mod->actions->on_init) {
-        inner_ret = mod->actions->on_init(mod);
-        if(SUCCESS != inner_ret) {
-            log_error("Module [%s] on_init failed with error code %d\n", mod->name, inner_ret);
-            return NULL;
-        }
-    }
-
+    struct message msg = { 0 };
     while(mod->running) {
-        struct process_message msg;
-        int ret = receive_message(mod->id, &msg, 5000);
-        if(SUCCESS == ret && NULL != mod->actions->on_message) {
-            inner_ret = mod->actions->on_message(mod, &msg);
-            log_debug("Module [%s] on_message returned with code %d\n", mod->name, inner_ret);
+        memset(&msg, 0, sizeof(struct message));
+        inner_ret = receive_message(mod->id, &msg);
+        if(SUCCESS == inner_ret) {
+            int handler_index = match_handler(mod, &msg);
+            if(-ENOENT != handler_index) {
+                inner_ret = mod->msg_handlers[handler_index].handler(mod, &msg);
+                log_info("Module [%s] handle message %d ret %d\n", mod->name, msg.type, inner_ret);
+            }
         }
-        else if(ETIMEDOUT == ret && NULL != mod->actions->on_tick) {
-            inner_ret = mod->actions->on_tick(mod);
+        else if(ENOTCONN == inner_ret) {
+            log_error("Message Queue is not ready, module [%s] is stopped\n", mod->name);
+            mod->running = false;
         }
-    }
-
-    if(NULL != mod->actions->on_exit) {
-        inner_ret = mod->actions->on_exit(mod);
     }
 
     return NULL;
@@ -51,9 +51,10 @@ int module_init(struct module *mod, enum module_id id, const char *name) {
         return -EINVAL;
     }
 
-    mod->id = id;
-    snprintf(mod->name, MODULE_NAME_MAX_LEN, "%s", name);
     mod->running = false;
+    mod->id = id;
+    mod->msg_handlers = NULL;
+    snprintf(mod->name, MODULE_NAME_MAX_LEN, "%s", name);
     mod->thread_id = 0;
 
     log_info("Module [%s] initialized with ID %d\n", mod->name, mod->id);
@@ -66,10 +67,10 @@ int module_start(struct module *mod) {
         return -EINVAL;
     }
 
-    mod->running = true;
     log_info("Module [%s] started\n", mod->name);
+    mod->running = true;
 
-    if(0 != pthread_create(&mod->thread_id, NULL, module_thread_func, mod)) {
+    if(!pthread_create(&mod->thread_id, NULL, module_thread_func, mod)) {
         log_error("Failed to create thread for module [%s]\n", mod->name);
         mod->running = false;
         return -EBUSY;
@@ -84,7 +85,6 @@ int module_stop(struct module *mod, const char *reason) {
         return -EINVAL;
     }
 
-    mod->running = false;
     log_info("Module [%s] stopping due to reason: %s\n", mod->name, reason ? reason : "No reason provided");
 
     if(pthread_join(mod->thread_id, NULL)) {
@@ -92,38 +92,7 @@ int module_stop(struct module *mod, const char *reason) {
         return -EBUSY;
     }
 
+    mod->running = false;
     log_info("Module [%s] stopped successfully\n", mod->name);
-    return SUCCESS;
-}
-
-int default_module_on_init(struct module *mod) {
-    if(NULL != mod) {
-        log_info("Module [%s], ID %d, default init\n", mod->name, mod->id);
-    }
-
-    return SUCCESS;
-}
-
-int default_module_on_message(struct module *mod) {
-    if(NULL != mod) {
-        log_info("Module [%s], ID %d, default on_message\n", mod->name, mod->id);
-    }
-
-    return SUCCESS;
-}
-
-int default_module_on_tick(struct module *mod) {    
-    if(NULL != mod) {
-        log_info("Module [%s], ID %d, default on_tick\n", mod->name, mod->id);
-    }
-
-    return SUCCESS;
-}
-
-int default_module_on_exit(struct module *mod) {
-    if(NULL != mod) {
-        log_info("Module [%s], ID %d, default on_exit\n", mod->name, mod->id);
-    }
-
     return SUCCESS;
 }
