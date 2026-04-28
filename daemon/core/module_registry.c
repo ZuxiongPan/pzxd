@@ -6,7 +6,9 @@
 static struct module *module_registry[MODULE_ID_MAX];
 
 void module_registry_init(void) {
-    memset(module_registry, 0, sizeof(module_registry));
+    for(int i = 0; i < MODULE_ID_MAX; ++i) {
+        module_registry[i] = NULL;
+    }
     return ;
 }
 

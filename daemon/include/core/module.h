@@ -22,6 +22,7 @@ struct module {
     pthread_t thread_id;
 
     const struct msg_handler *msg_handlers;
+    int (*init)(struct module *mod);
 };
 
 int module_init(struct module *mod, enum module_id id, const char *name);

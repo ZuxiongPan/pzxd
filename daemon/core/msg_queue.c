@@ -94,8 +94,6 @@ int send_message(const struct message *msg_in) {
 }
 
 int receive_message(enum module_id self, struct message *msg_out) {
-    int ret = SUCCESS;
-    
     if(NULL == msg_out || self <= MODULE_ID_NONE || self >= MODULE_ID_MAX) {
         log_error("Invalid receiver\n");
         return -EINVAL;
@@ -108,7 +106,7 @@ int receive_message(enum module_id self, struct message *msg_out) {
     
     if(!queue_alive) {
         pthread_mutex_unlock(&queues[self].mutex);
-        ret = -ENOTCONN;
+        return -ENOTCONN;
     }
 
     memcpy(msg_out, &queues[self].messages[queues[self].head], sizeof(struct message));
@@ -116,5 +114,5 @@ int receive_message(enum module_id self, struct message *msg_out) {
     queues[self].count--;
     pthread_mutex_unlock(&queues[self].mutex);
 
-    return ret;
+    return SUCCESS;
 }

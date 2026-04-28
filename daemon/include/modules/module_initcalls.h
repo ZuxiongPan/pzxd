@@ -1,7 +1,8 @@
-#ifndef __MEMORY_MODULE_H__
-#define __MEMORY_MODULE_H__
+#ifndef __MODULE_INITCALLS_H__
+#define __MODULE_INITCALLS_H__
 
-int memory_module_register(void);
+int test1_module_register(void);
+int test2_module_register(void);
 
 typedef int (*module_register_fn)(void);
 

@@ -25,6 +25,15 @@ static void *module_thread_func(void *arg) {
     }
 
     int inner_ret = SUCCESS;
+    if(NULL != mod->init) {
+        inner_ret = mod->init(mod);
+        if(SUCCESS != inner_ret) {
+            log_error("Module [%s] init failed with ret %d\n", mod->name, inner_ret);
+            mod->running = false;
+            return NULL;
+        }
+    }
+
     struct message msg = { 0 };
     while(mod->running) {
         memset(&msg, 0, sizeof(struct message));
@@ -36,7 +45,7 @@ static void *module_thread_func(void *arg) {
                 log_info("Module [%s] handle message %d ret %d\n", mod->name, msg.type, inner_ret);
             }
         }
-        else if(ENOTCONN == inner_ret) {
+        else if(-ENOTCONN == inner_ret) {
             log_error("Message Queue is not ready, module [%s] is stopped\n", mod->name);
             mod->running = false;
         }
@@ -70,7 +79,7 @@ int module_start(struct module *mod) {
     log_info("Module [%s] started\n", mod->name);
     mod->running = true;
 
-    if(!pthread_create(&mod->thread_id, NULL, module_thread_func, mod)) {
+    if(pthread_create(&mod->thread_id, NULL, module_thread_func, mod)) {
         log_error("Failed to create thread for module [%s]\n", mod->name);
         mod->running = false;
         return -EBUSY;
@@ -87,12 +96,12 @@ int module_stop(struct module *mod, const char *reason) {
 
     log_info("Module [%s] stopping due to reason: %s\n", mod->name, reason ? reason : "No reason provided");
 
+    mod->running = false;
     if(pthread_join(mod->thread_id, NULL)) {
         log_error("Failed to join thread for module [%s]\n", mod->name);
         return -EBUSY;
     }
 
-    mod->running = false;
     log_info("Module [%s] stopped successfully\n", mod->name);
     return SUCCESS;
 }

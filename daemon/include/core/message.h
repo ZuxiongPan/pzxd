@@ -7,7 +7,8 @@
 #define MAX_MSG_SIZE 512
 
 enum msg_type {
-    MSG_TYPE_NONE = 0
+    MSG_TYPE_NONE = 0,
+    MSG_TYPE_INVALID
 };
 
 struct message {

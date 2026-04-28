@@ -28,14 +28,20 @@ int main() {
     module_registry_init();
 
     for (size_t i = 0; i < module_register_table_size; ++i) {
+        if(NULL == module_register_table[i]) {
+            continue;
+        }
         ret = module_register_table[i]();
         if (SUCCESS != ret) {
+            msg_queue_destroy();
             return ret;
         }
     }
 
     ret = module_registry_start_all();
     if (SUCCESS != ret) {
+        msg_queue_destroy();
+        module_registry_stop_all("start error");
         return ret;
     }
 
