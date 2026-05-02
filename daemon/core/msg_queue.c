@@ -53,13 +53,13 @@ void msg_queue_destroy(void) {
         return ;
     }
 
+    queue_alive = false;
     for(int i = 0; i < MODULE_ID_MAX; i++) {
         pthread_mutex_lock(&queues[i].mutex);
         pthread_cond_broadcast(&queues[i].cond);
         pthread_mutex_unlock(&queues[i].mutex);
     }
 
-    queue_alive = false;
     release_resource(MODULE_ID_MAX, MODULE_ID_MAX);
 
     return ;

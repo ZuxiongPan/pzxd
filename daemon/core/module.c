@@ -47,7 +47,7 @@ static void *module_thread_func(void *arg) {
         }
         else if(-ENOTCONN == inner_ret) {
             log_error("Message Queue is not ready, module [%s] is stopped\n", mod->name);
-            mod->running = false;
+            break;
         }
     }
 

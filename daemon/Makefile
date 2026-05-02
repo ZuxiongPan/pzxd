@@ -3,10 +3,10 @@ CFLAGS := -Wall -Wextra -O2
 LDFLAGS := 
 
 TARGET := pzxd
-SRCS := $(wildcard core/*.c init/*.c modules/*.c)
+SRCS := $(wildcard core/*.c init/*.c modules/*.c third_party/*/*.c)
 OBJS := $(patsubst %.c, %.o, $(SRCS))
 
-CFLAGS += -I./include
+CFLAGS += -I./include -I./third_party
 LDFLAGS += -lpthread
 
 export OBJS

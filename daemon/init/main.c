@@ -2,6 +2,7 @@
 #include "modules/module_initcalls.h"
 #include "common/log.h"
 #include "core/msg_queue.h"
+#include "core/database.h"
 
 #include <signal.h>
 #include <unistd.h>
@@ -20,8 +21,14 @@ int main() {
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
 
+    ret = database_init();
+    if (SUCCESS != ret) {
+        return ret;
+    }
+
     ret = msg_queue_init();
     if (SUCCESS != ret) {
+        database_destroy();
         return ret;
     }
 
@@ -33,6 +40,7 @@ int main() {
         }
         ret = module_register_table[i]();
         if (SUCCESS != ret) {
+            database_destroy();
             msg_queue_destroy();
             return ret;
         }
@@ -40,6 +48,7 @@ int main() {
 
     ret = module_registry_start_all();
     if (SUCCESS != ret) {
+        database_destroy();
         msg_queue_destroy();
         module_registry_stop_all("start error");
         return ret;
@@ -49,6 +58,7 @@ int main() {
 
     }
 
+    database_destroy();
     msg_queue_destroy();
     module_registry_stop_all("signal");
 
