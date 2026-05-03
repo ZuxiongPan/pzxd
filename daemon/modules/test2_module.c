@@ -4,20 +4,18 @@
 #include "core/module_registry.h"
 #include "core/msg_queue.h"
 #include "common/log.h"
+#include "core/database.h"
 
 static struct module test2_module = { 0 };
 
 static int msg_handler(struct module *mod, const struct message *msg) {
     log_info("Received message of type %d, content: %s\n", msg->type, MSG_PAYLOAD(msg, char));
     
+    char buf[STRVALUE_MAXLEN] = { 0 };
     time_t t = time(NULL);
-    struct message res = { 0 };
-    res.src = mod->id;
-    res.dst = msg->src;
-    res.type = MSG_TYPE_NONE;
-    res.event = 0;
-    res.payload_size = snprintf(res.payload, sizeof(res.payload), "%s", ctime(&t));
-    send_message(&res);
+    snprintf(buf, sizeof(buf), "%s", ctime(&t));
+    int ret = database_set("app.release_date", DBTYPE_STRING, buf);
+    ERR_CHECK_RET(ret);
 
     return SUCCESS;
 }

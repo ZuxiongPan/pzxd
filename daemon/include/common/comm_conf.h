@@ -3,4 +3,6 @@
 
 #define CONFIG_FILE "daemon.json"
 
+#define FILENAME_MAXLEN 256
+
 #endif

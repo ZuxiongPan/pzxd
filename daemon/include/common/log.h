@@ -14,4 +14,11 @@
 #define SUCCESS 0
 // error codes using kernel errno
 
+#define ERR_CHECK_RET(ret) \
+    do { \
+        if (SUCCESS != ret) { \
+            return ret; \
+        } \
+    } while (0)
+
 #endif

@@ -13,10 +13,7 @@ export OBJS
 
 .PHONY: all lib clean start
 
-all: lib $(TARGET)
-
-lib:
-	@echo "do nothing"
+all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
