@@ -21,7 +21,12 @@ struct message {
 };
 
 static inline void set_message(struct message *msg_ptr, enum module_id src,enum module_id dst, 
-    enum msg_type type, unsigned int event, int payload_size, const char *payload) {
+    enum msg_type type, unsigned int event, int payload_size, const char *payload) 
+{
+    if (NULL == msg_ptr)
+    {
+        return ;
+    }
     msg_ptr->src = src;
     msg_ptr->dst = dst;
     msg_ptr->type = type;

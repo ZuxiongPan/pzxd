@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -Wall -Wextra -O2
+CFLAGS := -Wall -Wextra -O2 -DDAEMON_DEBUG
 LDFLAGS := 
 
 TARGET := pzxd

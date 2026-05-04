@@ -1,1 +1,16 @@
-{"app":{"name":"pzxd","type":"daemon","platform":"linux","version":"1.0.0","language":"C","description":"simple linux C daemon program","author":{"name":"PanZuxiong","email":"pzxiong9865@gmail.com"},"license":"GPLv3","release_date":"Sun May  3 22:58:37 2026\n"}}
+{
+	"app":	{
+		"name":	"pzxd",
+		"type":	"daemon",
+		"platform":	"linux",
+		"version":	"1.0.0",
+		"language":	"C",
+		"description":	"simple linux C daemon program",
+		"author":	{
+			"name":	"PanZuxiong",
+			"email":	"pzxiong9865@gmail.com"
+		},
+		"license":	"GPLv3",
+		"release_date":	"Mon May  4 11:01:38 2026\n"
+	}
+}

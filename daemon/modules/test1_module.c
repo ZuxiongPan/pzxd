@@ -3,12 +3,13 @@
 #include "core/module.h"
 #include "core/module_registry.h"
 #include "core/msg_queue.h"
-#include "common/log.h"
+#include "common/comm_def.h"
 #include "core/database.h"
 
 static struct module test1_module = { 0 };
 
-static int msg_handler(struct module *mod, const struct message *msg) {
+static int msg_handler(struct module *mod, const struct message *msg) 
+{
     log_info("Received message of type %d, content: %s\n", msg->type, MSG_PAYLOAD(msg, char));
     
     char buf[STRVALUE_MAXLEN] = { 0 };
@@ -60,7 +61,9 @@ const struct msg_handler test1_msg_handlers[] = {
     { MSG_TYPE_INVALID, NULL }
 };
 
-int test1_module_register(void) {
+int test1_module_register(void) 
+{
+    log_info("test1_module_register\n");
     memset(&test1_module, 0, sizeof(test1_module));
     test1_module.id = MODULE_ID_TEST1;
     snprintf(test1_module.name, sizeof(test1_module.name), "test1_module");

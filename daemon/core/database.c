@@ -1,5 +1,5 @@
 #include "common/comm_conf.h"
-#include "common/log.h"
+#include "common/comm_def.h"
 #include "core/database.h"
 #include "cJSON/cJSON.h"
 
@@ -19,15 +19,20 @@ static struct database db = { 0 };
 static int database_load(void)
 {
     FILE *fp = fopen(CONFIG_FILE, "r");
-    if (!fp)
+    if (NULL == fp)
+    {
+        log_error("Failed to open config file %s\n", CONFIG_FILE);
         return -ENOENT;
+    }
 
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     rewind(fp);
 
     char *buf = malloc(size + 1);
-    if (!buf) {
+    if (NULL == buf)
+    {
+        log_error("Failed to allocate memory for config file %s\n", CONFIG_FILE);
         fclose(fp);
         return -ENOMEM;
     }
@@ -39,19 +44,23 @@ static int database_load(void)
     cJSON *root = cJSON_Parse(buf);
     free(buf);
 
-    if (!root || !cJSON_IsObject(root))
+    if (NULL == root || !cJSON_IsObject(root))
+    {
+        log_error("Invalid config file %s\n", CONFIG_FILE);
         return -EINVAL;
+    }
 
     pthread_rwlock_wrlock(&db.rwlock);
-
-    if (db.root)
+    if (NULL != db.root)
+    {
+        log_info("old config exists, delete it\n");
         cJSON_Delete(db.root);
+    }
 
     db.root = root;
-
     pthread_rwlock_unlock(&db.rwlock);
 
-    return 0;
+    return SUCCESS;
 }
 
 
@@ -62,36 +71,44 @@ int database_save(void)
 
     pthread_rwlock_rdlock(&db.rwlock);
 
-    if (!db.root) {
+    if (NULL == db.root)
+    {
+        log_error("config is empty\n");
         pthread_rwlock_unlock(&db.rwlock);
         return -EINVAL;
     }
 
-    char *json = cJSON_PrintUnformatted(db.root);
+    char *json = cJSON_Print(db.root);
     pthread_rwlock_unlock(&db.rwlock);
 
-    if (!json)
+    if (NULL == json)
+    {
+        log_error("Failed to print config to JSON\n");
         return -ENOMEM;
+    }
 
     FILE *fp = fopen(tmpfile, "w");
-    if (!fp) {
+    if (NULL == fp)
+    {
+        log_error("Failed to open tmp file %s\n", tmpfile);
         free(json);
         return -ENOENT;
     }
 
     fwrite(json, 1, strlen(json), fp);
+    free(json);
     fflush(fp);
     fsync(fileno(fp));
     fclose(fp);
 
-    free(json);
-
     return rename(tmpfile, CONFIG_FILE);
 }
 
-int database_init(void) {
+int database_init(void)
+{
     db.root = NULL;
-    if(pthread_rwlock_init(&db.rwlock, NULL) != 0) {
+    if (0 != pthread_rwlock_init(&db.rwlock, NULL))
+    {
         log_error("Failed to initialize rwlock\n");
         return -EPERM;
     }
@@ -99,11 +116,13 @@ int database_init(void) {
     return database_load();
 }
 
-void database_destroy(void) {
+void database_destroy(void)
+{
     database_save();
 
     pthread_rwlock_wrlock(&db.rwlock);
-    if(NULL != db.root) {
+    if (NULL != db.root)
+    {
         cJSON_Delete(db.root);
     }
     pthread_rwlock_unlock(&db.rwlock);
@@ -118,22 +137,29 @@ static cJSON* db_get_node(const char *path)
     const char *p = path;
     cJSON *cur = db.root;
 
-    while (*p && cur) {
+    while (*p && cur)
+    {
         const char *dot = strchr(p, '.');
         int len = dot ? (dot - p) : strlen(p);
 
         if (len >= (int)sizeof(key))
+        {
             return NULL;
+        }
 
         strncpy(key, p, len);
         key[len] = '\0';
 
         cur = cJSON_GetObjectItemCaseSensitive(cur, key);
-        if (!cur)
+        if (NULL == cur)
+        {
             return NULL;
+        }
 
-        if (!dot)
+        if (NULL == dot)
+        {
             break;
+        }
 
         p = dot + 1;
     }
@@ -147,7 +173,8 @@ static cJSON* db_create_path(const char *path)
     const char *p = path;
     cJSON *cur = db.root;
 
-    while (*p) {
+    while (*p)
+    {
         const char *dot = strchr(p, '.');
         int len = dot ? (dot - p) : strlen(p);
 
@@ -156,15 +183,18 @@ static cJSON* db_create_path(const char *path)
 
         cJSON *next = cJSON_GetObjectItemCaseSensitive(cur, key);
 
-        if (!next) {
+        if (NULL == next)
+        {
             next = cJSON_CreateObject();
             cJSON_AddItemToObject(cur, key, next);
         }
 
         cur = next;
 
-        if (!dot)
+        if (NULL == dot)
+        {
             break;
+        }
 
         p = dot + 1;
     }
@@ -174,45 +204,52 @@ static cJSON* db_create_path(const char *path)
 
 int database_get(const char *path, enum datatype type, void *value, int size)
 {
-    if (!path || !value)
+    if (NULL == path || NULL == value)
+    {
         return -EINVAL;
+    }
 
     pthread_rwlock_rdlock(&db.rwlock);
 
     cJSON *node = db_get_node(path);
-    if (!node) {
+    if (NULL == node)
+    {
         pthread_rwlock_unlock(&db.rwlock);
         return -ENOENT;
     }
 
-    int ret = 0;
+    int ret = -EINVAL;
 
-    switch (type) {
-    case DBTYPE_INT:
-        if (cJSON_IsNumber(node))
-            *(int *)value = node->valueint;
-        else
+    switch (type)
+    {
+        case DBTYPE_BOOL:
+            if (cJSON_IsBool(node))
+            {
+                *(bool *)value = cJSON_IsTrue(node);
+                ret = SUCCESS;
+            }
+            break;
+
+        case DBTYPE_INT:
+            if (cJSON_IsNumber(node))
+            {
+                *(int *)value = node->valueint;
+                ret = SUCCESS;
+            }
+            break;
+
+        case DBTYPE_STRING:
+            if (cJSON_IsString(node))
+            {
+                strncpy((char *)value, node->valuestring, size - 1);
+                ((char *)value)[size - 1] = '\0';
+                ret = SUCCESS;
+            }
+            break;
+
+        default:
             ret = -EINVAL;
-        break;
-
-    case DBTYPE_BOOL:
-        if (cJSON_IsBool(node))
-            *(bool *)value = cJSON_IsTrue(node);
-        else
-            ret = -EINVAL;
-        break;
-
-    case DBTYPE_STRING:
-        if (cJSON_IsString(node)) {
-            strncpy((char *)value, node->valuestring, size - 1);
-            ((char *)value)[size - 1] = '\0';
-        } else {
-            ret = -EINVAL;
-        }
-        break;
-
-    default:
-        ret = -EINVAL;
+            break;
     }
 
     pthread_rwlock_unlock(&db.rwlock);
@@ -221,16 +258,21 @@ int database_get(const char *path, enum datatype type, void *value, int size)
 
 int database_set(const char *path, enum datatype type, const void *value)
 {
-    if (!path || !value)
+    if (NULL == path || NULL == value)
+    {
+        log_error("path or value is NULL\n");
         return -EINVAL;
+    }
 
     pthread_rwlock_wrlock(&db.rwlock);
 
     cJSON *node = db_get_node(path);
-
-    if (!node) {
+    if (NULL == node)
+    {
         node = db_create_path(path);
-        if (!node) {
+        if (NULL == node)
+        {
+            log_error("Failed to create path %s\n", path);
             pthread_rwlock_unlock(&db.rwlock);
             return -ENOMEM;
         }
@@ -244,25 +286,27 @@ int database_set(const char *path, enum datatype type, const void *value)
 
     cJSON *new_item = NULL;
 
-    switch (type) {
-    case DBTYPE_INT:
-        new_item = cJSON_CreateNumber(*(int *)value);
-        break;
+    switch (type)
+    {
+        case DBTYPE_BOOL:
+            new_item = cJSON_CreateBool(*(bool *)value);
+            break;
+        
+        case DBTYPE_INT:
+            new_item = cJSON_CreateNumber(*(int *)value);
+            break;
 
-    case DBTYPE_BOOL:
-        new_item = cJSON_CreateBool(*(bool *)value);
-        break;
+        case DBTYPE_STRING:
+            new_item = cJSON_CreateString((char *)value);
+            break;
 
-    case DBTYPE_STRING:
-        new_item = cJSON_CreateString((char *)value);
-        break;
-
-    default:
-        pthread_rwlock_unlock(&db.rwlock);
-        return -EINVAL;
+        default:
+            pthread_rwlock_unlock(&db.rwlock);
+            return -EINVAL;
     }
 
-    if (!new_item) {
+    if (NULL == new_item)
+    {
         pthread_rwlock_unlock(&db.rwlock);
         return -ENOMEM;
     }
@@ -270,9 +314,16 @@ int database_set(const char *path, enum datatype type, const void *value)
     char *last_dot = strrchr(path, '.');
     const char *key = last_dot ? last_dot + 1 : path;
 
-    cJSON *parent = last_dot ? db_get_node(strndup(path, last_dot - path)) : db.root;
+    char *tmp_path = last_dot ? strndup(path, last_dot - path) : NULL;
+    cJSON *parent = last_dot ? db_get_node(tmp_path) : db.root;
 
-    if (!parent) {
+    if(NULL != tmp_path)
+    {
+        free(tmp_path);
+    }
+
+    if (NULL == parent)
+    {
         pthread_rwlock_unlock(&db.rwlock);
         return -ENOENT;
     }
