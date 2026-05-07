@@ -1,8 +1,24 @@
 #include "core/module.h"
-#include "common/comm_def.h"
 #include "core/msg_queue.h"
+#include "common/comm_def.h"
+#include "common/comm_event.h"
 
 #include <unistd.h>
+
+int alive_check_handler(struct module *mod, const struct message *msg)
+{
+    if(MODULE_ID_MONITOR != msg->src)
+    {
+        log_info("Received alive check from unknown module %d\n", msg->src);
+        return -EINVAL;
+    }
+
+    struct message ack = { 0 };
+    set_message(&ack, mod->id, msg->src, EV_ALIVE_ACK, 0, NULL);
+    send_message(&ack);
+
+    return SUCCESS;
+}
 
 static inline int match_handler(const struct module *mod, const struct message *msg)
 {
@@ -10,7 +26,7 @@ static inline int match_handler(const struct module *mod, const struct message *
     int i = 0;
     while (NULL != mod->msg_handlers[i].handler)
     {
-        if (mod->msg_handlers[i].type == msg->type)
+        if (EVENT_TYPE(mod->msg_handlers[i].event_type) == EVENT_TYPE(msg->event))
         {
             ret = i;
             break;
@@ -53,13 +69,23 @@ static void *module_thread_func(void *arg)
             if (-ENOENT != handler_index)
             {
                 inner_ret = mod->msg_handlers[handler_index].handler(mod, &msg);
-                log_info("Module [%s] handle message %d ret %d\n", mod->name, msg.type, inner_ret);
+                log_info("Module [%s] handle message %x ret %d\n", mod->name, msg.event, inner_ret);
             }
         }
         else if (-ENOTCONN == inner_ret)
         {
             log_error("Message Queue is not ready, module [%s] is stopped\n", mod->name);
             break;
+        }
+    }
+    mod->running = false;
+
+    if (NULL != mod->exit)
+    {
+        inner_ret = mod->exit(mod);
+        if (SUCCESS != inner_ret)
+        {
+            log_error("Module [%s] exit failed with ret %d\n", mod->name, inner_ret);
         }
     }
 
@@ -120,6 +146,8 @@ int module_stop(struct module *mod, const char *reason)
         log_error("Failed to join thread for module [%s]\n", mod->name);
         return -EBUSY;
     }
+
+    mod->thread_id = 0;
 
     log_info("Module [%s] stopped successfully\n", mod->name);
     return SUCCESS;

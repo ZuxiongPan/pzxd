@@ -63,7 +63,6 @@ static int database_load(void)
     return SUCCESS;
 }
 
-
 int database_save(void)
 {
     char tmpfile[FILENAME_MAXLEN];

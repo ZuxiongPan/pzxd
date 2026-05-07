@@ -3,14 +3,15 @@
 #include "core/module.h"
 #include "core/module_registry.h"
 #include "core/msg_queue.h"
-#include "common/comm_def.h"
 #include "core/database.h"
+#include "common/comm_def.h"
+#include "common/comm_event.h"
 
 static struct module test1_module = { 0 };
 
 static int msg_handler(struct module *mod, const struct message *msg) 
 {
-    log_info("Received message of type %d, content: %s\n", msg->type, MSG_PAYLOAD(msg, char));
+    log_info("Received message of event %x, content: %s\n", msg->event, MSG_PAYLOAD(msg, char));
     
     char buf[STRVALUE_MAXLEN] = { 0 };
     int ret = database_get("app.name", DBTYPE_STRING, buf, sizeof(buf));
@@ -48,8 +49,7 @@ static int msg_handler(struct module *mod, const struct message *msg)
     struct message res = { 0 };
     res.src = mod->id;
     res.dst = msg->src;
-    res.type = MSG_TYPE_NONE;
-    res.event = 0;
+    res.event = EV_TEST_EVENT1;
     res.payload_size = snprintf(res.payload, sizeof(res.payload), "%s", ctime(&t));
     send_message(&res);
 
@@ -57,8 +57,9 @@ static int msg_handler(struct module *mod, const struct message *msg)
 }
 
 const struct msg_handler test1_msg_handlers[] = {
-    { MSG_TYPE_NONE, msg_handler },
-    { MSG_TYPE_INVALID, NULL }
+    { EV_ALIVE_CHECK, alive_check_handler },
+    { EV_TEST_EVENT1, msg_handler },
+    { INVALID_EVENT_TYPE, NULL }
 };
 
 int test1_module_register(void) 

@@ -58,7 +58,7 @@ int module_registry_stop_all(const char *reason)
 {
     for (int i = MODULE_ID_MAX - 1; i >= 0; --i)
     {
-        if (NULL == module_registry[i] || !module_registry[i]->running)
+        if (NULL == module_registry[i] || 0 == module_registry[i]->thread_id)
         {
             continue;
         }
