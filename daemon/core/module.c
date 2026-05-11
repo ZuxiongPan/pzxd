@@ -1,154 +1,121 @@
-#include "core/module.h"
-#include "core/msg_queue.h"
-#include "common/comm_def.h"
-#include "common/comm_event.h"
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <stdbool.h>
+#include "module.h"
+#include "log.h"
 
-#include <unistd.h>
-
-int alive_check_handler(struct module *mod, const struct message *msg)
+static void async_callback(uv_async_t *handle)
 {
-    if(MODULE_ID_MONITOR != msg->src)
+    armd_module_t *mod = (armd_module_t *)handle->data;
+    armd_msg_queue_t *q = &mod->msg_queue;
+
+    while (true)
     {
-        log_info("Received alive check from unknown module %d\n", msg->src);
-        return -EINVAL;
-    }
+        pthread_mutex_lock(&q->q_mutex);
 
-    struct message ack = { 0 };
-    set_message(&ack, mod->id, msg->src, EV_ALIVE_ACK, 0, NULL);
-    send_message(&ack);
-
-    return SUCCESS;
-}
-
-static inline int match_handler(const struct module *mod, const struct message *msg)
-{
-    int ret = -ENOENT;
-    int i = 0;
-    while (NULL != mod->msg_handlers[i].handler)
-    {
-        if (EVENT_TYPE(mod->msg_handlers[i].event_type) == EVENT_TYPE(msg->event))
+        if (q->tail == q->head)
         {
-            ret = i;
+            pthread_mutex_unlock(&q->q_mutex);
             break;
         }
-        i++;
-    }
 
-    return ret;
+        armd_msg_t msg = q->msgs[q->tail];
+        q->tail = (q->tail + 1) % QUEUE_SIZE;
+
+        pthread_mutex_unlock(&q->q_mutex);
+
+        if (mod->mops != NULL && mod->mops->on_message != NULL)
+        {
+            mod->mops->on_message(mod, &msg);
+        }
+    }
 }
 
-static void *module_thread_func(void *arg)
+int armd_module_start(armd_module_t *mod, uv_loop_t *loop)
 {
-    struct module *mod = (struct module *)arg;
-    if (NULL == mod || NULL == mod->msg_handlers)
+    if (mod == NULL || loop == NULL || mod->mops == NULL)
     {
-        log_error("Module is Invalid\n");
-        return NULL;
-    }
-
-    int inner_ret = SUCCESS;
-    if (NULL != mod->init)
-    {
-        inner_ret = mod->init(mod);
-        if (SUCCESS != inner_ret)
-        {
-            log_error("Module [%s] init failed with ret %d\n", mod->name, inner_ret);
-            mod->running = false;
-            return NULL;
-        }
-    }
-
-    struct message msg = { 0 };
-    while (mod->running)
-    {
-        memset(&msg, 0, sizeof(struct message));
-        inner_ret = receive_message(mod->id, &msg);
-        if (SUCCESS == inner_ret)
-        {
-            int handler_index = match_handler(mod, &msg);
-            if (-ENOENT != handler_index)
-            {
-                inner_ret = mod->msg_handlers[handler_index].handler(mod, &msg);
-                log_info("Module [%s] handle message %x ret %d\n", mod->name, msg.event, inner_ret);
-            }
-        }
-        else if (-ENOTCONN == inner_ret)
-        {
-            log_error("Message Queue is not ready, module [%s] is stopped\n", mod->name);
-            break;
-        }
-    }
-    mod->running = false;
-
-    if (NULL != mod->exit)
-    {
-        inner_ret = mod->exit(mod);
-        if (SUCCESS != inner_ret)
-        {
-            log_error("Module [%s] exit failed with ret %d\n", mod->name, inner_ret);
-        }
-    }
-
-    return NULL;
-}
-
-int module_init(struct module *mod, enum module_id id, const char *name) 
-{
-    if (NULL == mod || NULL == name)
-    {
-        log_error("Invalid arguments\n");
         return -EINVAL;
     }
 
-    mod->running = false;
-    mod->id = id;
-    mod->msg_handlers = NULL;
-    snprintf(mod->name, MODULE_NAME_MAX_LEN, "%s", name);
-    mod->thread_id = 0;
+    mod->loop = loop;
 
-    log_info("Module [%s] initialized with ID %d\n", mod->name, mod->id);
-    return SUCCESS;
+    armd_msg_queue_t *q = &mod->msg_queue;
+    pthread_mutex_init(&q->q_mutex, NULL);
+    q->head = 0;
+    q->tail = 0;
+
+    int ret = uv_async_init(loop, &mod->async, async_callback);
+    if (ret < 0)
+    {
+        log_error("uv_async_init failed for module '%s': %s",
+                  mod->name, uv_strerror(ret));
+        pthread_mutex_destroy(&q->q_mutex);
+        return ret;
+    }
+    mod->async.data = mod;
+
+    if (mod->mops->on_start != NULL)
+    {
+        ret = mod->mops->on_start(mod);
+        if (ret < 0)
+        {
+            log_error("on_start failed for module '%s': %d", mod->name, ret);
+            uv_close((uv_handle_t *)&mod->async, NULL);
+            pthread_mutex_destroy(&q->q_mutex);
+            return ret;
+        }
+    }
+
+    log_info("module '%s' started", mod->name);
+    return 0;
 }
 
-int module_start(struct module *mod) 
+void armd_module_stop(armd_module_t *mod)
 {
-    if (NULL == mod)
+    if (mod == NULL || mod->mops == NULL)
     {
-        log_error("Module is Invalid\n");
+        return;
+    }
+
+    if (mod->mops->on_stop != NULL)
+    {
+        mod->mops->on_stop(mod);
+    }
+
+    uv_close((uv_handle_t *)&mod->async, NULL);
+    pthread_mutex_destroy(&mod->msg_queue.q_mutex);
+
+    log_info("module '%s' stopped", mod->name);
+    return ;
+}
+
+int armd_module_post(armd_module_t *mod, const armd_msg_t *msg)
+{
+    if (mod == NULL || msg == NULL)
+    {
         return -EINVAL;
     }
 
-    log_info("Module [%s] started\n", mod->name);
-    mod->running = true;
-    if (pthread_create(&mod->thread_id, NULL, module_thread_func, mod))
+    armd_msg_queue_t *q = &mod->msg_queue;
+
+    pthread_mutex_lock(&q->q_mutex);
+
+    unsigned int next_head = (q->head + 1) % QUEUE_SIZE;
+    if (next_head == q->tail)
     {
-        log_error("Failed to create thread for module [%s]\n", mod->name);
-        mod->running = false;
-        return -EBUSY;
+        pthread_mutex_unlock(&q->q_mutex);
+        log_warn("module '%s' queue full, message dropped", mod->name);
+        return -ENOSPC;
     }
 
-    return SUCCESS;
-}
+    q->msgs[q->head] = *msg;
+    q->head = next_head;
 
-int module_stop(struct module *mod, const char *reason) 
-{
-    if (NULL == mod)
-    {
-        log_error("Module is Invalid\n");
-        return -EINVAL;
-    }
+    pthread_mutex_unlock(&q->q_mutex);
 
-    log_info("Module [%s] stopping due to reason: %s\n", mod->name, reason ? reason : "No reason provided");
+    uv_async_send(&mod->async);
 
-    mod->running = false;
-    if (pthread_join(mod->thread_id, NULL))
-    {
-        log_error("Failed to join thread for module [%s]\n", mod->name);
-        return -EBUSY;
-    }
-
-    mod->thread_id = 0;
-
-    log_info("Module [%s] stopped successfully\n", mod->name);
-    return SUCCESS;
+    return 0;
 }

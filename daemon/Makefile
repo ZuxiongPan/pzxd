@@ -1,28 +1,29 @@
-CC := gcc
-CFLAGS := -Wall -Wextra -O2 -DDAEMON_DEBUG
-LDFLAGS := 
+CC = gcc
 
-TARGET := pzxd
-SRCS := $(wildcard core/*.c init/*.c modules/*.c third_party/*/*.c)
-OBJS := $(patsubst %.c, %.o, $(SRCS))
+CFLAGS = -O2 -Wall -std=gnu11 \
+         -I./include -I../lib/libuv/include
 
-CFLAGS += -I./include -I./third_party
-LDFLAGS += -lpthread
+LDFLAGS = -L../lib/libuv -luv -lpthread -ldl \
+          -Wl,-rpath=\$$ORIGIN/../lib/libuv
 
-export OBJS
+SRC = \
+    init/main.c \
+    init/module_regcalls.c \
+    core/module.c \
+    core/module_registry.c \
+    modules/system/monitor.c
 
-.PHONY: all lib clean start
+OBJ = $(SRC:.c=.o)
+
+TARGET = armd
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	$(RM) $(OBJS) $(TARGET)
-
-start:
-	./$(TARGET)
+	rm -f $(OBJ) $(TARGET)

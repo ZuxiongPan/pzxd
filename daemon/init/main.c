@@ -1,82 +1,99 @@
-#include "core/module_registry.h"
-#include "modules/module_initcalls.h"
-#include "common/comm_def.h"
-#include "core/msg_queue.h"
-#include "core/database.h"
-
 #include <signal.h>
-#include <unistd.h>
+#include <stdlib.h>
+#include "module.h"
+#include "module_registry.h"
+#include "module_regcalls.h"
+#include "log.h"
 
-void signal_handler(int sig);
+static uv_async_t g_shutdown_async;
 
-extern module_register_fn module_register_table[];
-extern const size_t module_register_table_size;
-
-static volatile sig_atomic_t g_should_exit = 0;
-
-int main() 
+static void on_shutdown_async(uv_async_t *handle)
 {
-    int ret = SUCCESS;
+    log_info("shutdown signal received, stopping all modules …");
+    armd_module_stopall();
+    uv_close((uv_handle_t *)handle, NULL);
+}
 
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT, signal_handler);
+static void signal_handler(int signum)
+{
+    (void)signum;
+    uv_async_send(&g_shutdown_async);
+}
 
-    ret = database_init();
-    if (SUCCESS != ret) 
+static int run_regcalls(const armd_module_regcall_t *calls, const char *level_name)
+{
+    if (calls == NULL) return 0;
+
+    for (int i = 0; calls[i] != NULL; i++)
     {
-        log_error("database_init failed, ret: %d\n", ret);
-        return ret;
-    }
-
-    ret = msg_queue_init();
-    if (SUCCESS != ret) 
-    {
-        log_error("msg_queue_init failed, ret: %d\n", ret);
-        database_destroy();
-        return ret;
-    }
-
-    module_registry_init();
-
-    for (size_t i = 0; i < module_register_table_size; ++i) 
-    {
-        if(NULL == module_register_table[i]) 
+        int ret = calls[i]();
+        if (ret < 0)
         {
-            continue;
-        }
-        ret = module_register_table[i]();
-        if (SUCCESS != ret) 
-        {
-            msg_queue_destroy();
-            database_destroy();
+            log_error("regcall[%d] at level '%s' failed: %d", i, level_name, ret);
             return ret;
         }
     }
-
-    ret = module_registry_start_all();
-    if (SUCCESS != ret)
-    {
-        msg_queue_destroy();
-        module_registry_stop_all("start error");
-        database_destroy();
-        return ret;
-    }
-
-    while(!g_should_exit) 
-    {
-    }
-
-    msg_queue_destroy();
-    module_registry_stop_all("signal");
-    database_destroy();
-
-    return SUCCESS;
+    return 0;
 }
 
-void signal_handler(int sig) 
+int main(void)
 {
-    g_should_exit = 1;
-    log_info("receive signal %d, exit this daemon\n", sig);
+    int ret = 0;
+    uv_loop_t *loop = uv_default_loop();
 
-    return ;
+    ret = uv_async_init(loop, &g_shutdown_async, on_shutdown_async);
+    if (ret < 0)
+    {
+        log_error("uv_async_init for shutdown failed: %s", uv_strerror(ret));
+        return 1;
+    }
+
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    registry_init();
+    
+    if ((ret = run_regcalls(armd_module_regcalls_system, "system")) < 0)
+    {
+        log_error("run_regcalls for system failed: %d", ret);
+        goto fail;
+    }
+    if ((ret = run_regcalls(armd_module_regcalls_core, "core")) < 0)
+    {
+        log_error("run_regcalls for core failed: %d", ret);
+        goto fail;
+    }
+    if ((ret = run_regcalls(armd_module_regcalls_app, "app")) < 0)
+    {
+        log_error("run_regcalls for app failed: %d", ret);
+        goto fail;
+    }
+    if ((ret = run_regcalls(armd_module_regcalls_post, "post")) < 0)
+    {
+        log_error("run_regcalls for post failed: %d", ret);
+        goto fail;
+    }
+
+    ret = armd_module_startall(loop);
+    if (ret < 0)
+    {
+        log_error("armd_module_startall failed: %d", ret);
+        goto fail;
+    }
+
+    log_info("armd daemon running");
+    uv_run(loop, UV_RUN_DEFAULT);
+    log_info("armd daemon exited cleanly");
+
+    uv_loop_close(loop);
+    
+    return 0;
+
+fail:
+    armd_module_stopall();
+    uv_close((uv_handle_t *)&g_shutdown_async, NULL);
+    uv_run(loop, UV_RUN_DEFAULT);
+    uv_loop_close(loop);
+
+    return 1;
 }

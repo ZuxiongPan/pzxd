@@ -1,119 +1,133 @@
-#include "core/module_registry.h"
-#include "common/comm_def.h"
-
+#include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <stdbool.h>
+#include "datastructure.h"
+#include "module_registry.h"
+#include "log.h"
 
-static struct module *module_registry[MODULE_ID_MAX];
+static armd_list_t registry_sentinel[MAX_LEVEL];
+static bool registry_initialized = false;
 
-void module_registry_init(void)
+void registry_init(void)
 {
-    for (int i = 0; i < MODULE_ID_MAX; ++i)
+    if (registry_initialized)
     {
-        module_registry[i] = NULL;
+        return ;
     }
+
+    for (int i = 0; i < MAX_LEVEL; i++)
+    {
+        armd_list_init(&registry_sentinel[i]);
+    }
+    registry_initialized = true;
 
     return ;
 }
 
-int module_register(struct module *mod)
+void armd_module_register(armd_module_t *mod, armd_module_level_e level)
 {
-    if (NULL == mod || mod->id >= MODULE_ID_MAX)
+    if (mod == NULL || level >= MAX_LEVEL || !registry_initialized)
     {
-        log_error("Invalid module\n");
+        return ;
+    }
+
+    armd_list_init(&mod->list);
+    armd_list_insert(&registry_sentinel[level], &mod->list);
+
+    log_info("module '%s' registered at level %d", mod->name, (int)level);
+
+    return ;
+}
+
+void armd_module_unregister(armd_module_t *mod, armd_module_level_e level)
+{
+    if (mod == NULL || level >= MAX_LEVEL || !registry_initialized)
+    {
+        return ;
+    }
+
+    armd_list_delete(&mod->list);
+
+    log_info("module '%s' unregistered from level %d", mod->name, (int)level);
+
+    return ;
+}
+
+armd_module_t* armd_module_find(const char *name)
+{
+    if (name == NULL || !registry_initialized)
+    {
+        return NULL;
+    }
+
+    for (int level = SYSTEM_LEVEL; level < MAX_LEVEL; level++)
+    {
+        armd_list_t *sentinel = &registry_sentinel[level];
+        armd_list_t *node = sentinel->next;
+
+        while (node != sentinel)
+        {
+            armd_module_t *mod = member_container(node, armd_module_t, list);
+            if (strncmp(name, mod->name, MODULE_NAME_MAXLEN) == 0)
+            {
+                return mod;
+            }
+            node = node->next;
+        }
+    }
+
+    return NULL;
+}
+
+int armd_module_startall(uv_loop_t *loop)
+{
+    if (loop == NULL || !registry_initialized)
+    {
         return -EINVAL;
     }
 
-    if (NULL != module_registry[mod->id])
+    for (int level = SYSTEM_LEVEL; level < MAX_LEVEL; level++)
     {
-        log_error("Module with id %d already registered\n", mod->id);
-        return -EEXIST;
+        armd_list_t *sentinel = &registry_sentinel[level];
+        armd_list_t *node = sentinel->next;
+
+        while (node != sentinel)
+        {
+            armd_module_t *mod = member_container(node, armd_module_t, list);
+            int ret = armd_module_start(mod, loop);
+            if (ret < 0)
+            {
+                log_error("failed to start module '%s' (ret=%d)", mod->name, ret);
+                return ret;
+            }
+            node = node->next;
+        }
     }
 
-    module_registry[mod->id] = mod;
-    return SUCCESS;
+    return 0;
 }
 
-int module_registry_start_all(void)
+void armd_module_stopall(void)
 {
-    for (int i = 0; i < MODULE_ID_MAX; ++i)
+    if (!registry_initialized)
     {
-        if (NULL == module_registry[i])
-        {
-            continue;
-        }
-
-        int ret = module_start(module_registry[i]);
-        if (SUCCESS != ret)
-        {
-            log_error("Failed to start module [%s] with error code %d\n",
-                      module_registry[i]->name, ret);
-            return -EBUSY;
-        }
+        return ;
     }
 
-    return SUCCESS;
-}
-
-int module_registry_stop_all(const char *reason)
-{
-    for (int i = MODULE_ID_MAX - 1; i >= 0; --i)
+    for (int level = MAX_LEVEL - 1; level >= SYSTEM_LEVEL; level--)
     {
-        if (NULL == module_registry[i] || 0 == module_registry[i]->thread_id)
-        {
-            continue;
-        }
+        armd_list_t *sentinel = &registry_sentinel[level];
 
-        int ret = module_stop(module_registry[i], reason);
-        if (SUCCESS != ret)
+        while (!armd_list_empty(sentinel))
         {
-            log_error("Failed to stop module [%s] with error code %d\n",
-                      module_registry[i]->name, ret);
-            // a module stop failed do not influence other modules
+            armd_list_t *node = sentinel->next;
+            armd_module_t *mod  = member_container(node, armd_module_t, list);
+
+            armd_module_stop(mod);
+            armd_list_delete(node);
         }
     }
 
-    return SUCCESS;
-}
-
-struct module *find_module_by_id(enum module_id id)
-{
-    if (id <= MODULE_ID_NONE || id >= MODULE_ID_MAX)
-    {
-        log_error("Invalid module id %d\n", id);
-        return NULL;
-    }
-
-    return module_registry[id];
-}
-
-struct module *find_module_by_name(const char *name)
-{
-    struct module *entry = NULL;
-
-    if (NULL == name)
-    {
-        log_error("Invalid module name\n");
-        return NULL;
-    }
-    for (int i = 0; i < MODULE_ID_MAX; ++i)
-    {
-        if (NULL != module_registry[i] && !strncmp(module_registry[i]->name, name, MODULE_NAME_MAX_LEN))
-        {
-            entry = module_registry[i];
-            break;
-        }
-    }
-
-    return entry;
-}
-
-void print_module_registry(void)
-{
-    for (int i = 0; i < MODULE_ID_MAX; ++i)
-    {
-        if (NULL != module_registry[i])
-        {
-            printf("\tModule %d: %s\n", i, module_registry[i]->name);
-        }
-    }
+    return ;
 }
